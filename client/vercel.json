@@ -1,7 +1,5 @@
-# Build settings for Vercel
-[build]
-  command = "npm run build"
-  publish = ".next"
-
-[[build.environment]]
-  NEXT_PUBLIC_API_URL = ""
+{
+  "buildCommand": "npm run build",
+  "outputDirectory": ".next",
+  "framework": "nextjs"
+}

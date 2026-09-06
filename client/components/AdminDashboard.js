@@ -1,8 +1,9 @@
 // Admin Dashboard Component - Avalanche Cross-Chain Bridge
 import { useState, useEffect, useCallback } from "react";
+import Link from "next/link";
 import {
   getStats, getBridgeRequests, getValidators, getFunds, getFundSummary,
-  updateBridgeRequest, updateValidator
+  createBridgeRequest, updateBridgeRequest, updateValidator
 } from "../lib/api";
 
 function StatCard({ value, label, color }) {
@@ -14,7 +15,43 @@ function StatCard({ value, label, color }) {
   );
 }
 
-function DashboardTab() {
+function RefreshButton({ onClick }) {
+  return (
+    <button className="btn btn-sm btn-secondary" onClick={onClick} style={{ marginBottom: 16 }}>
+      {"\u27F3"} 刷新数据
+    </button>
+  );
+}
+
+function ExportButton({ data, filename, label }) {
+  const handleExport = () => {
+    if (!data || data.length === 0) return;
+    const headers = Object.keys(data[0]);
+    const csvRows = [
+      headers.join(","),
+      ...data.map(row => headers.map(h => {
+        const val = row[h];
+        const str = val === null || val === undefined ? "" : String(val);
+        return str.includes(",") || str.includes('"') ? '"' + str.replace(/"/g, '""') + '"' : str;
+      }).join(","))
+    ];
+    const csv = "\uFEFF" + csvRows.join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+  return (
+    <button className="btn btn-sm btn-secondary" onClick={handleExport} style={{ marginBottom: 16, marginLeft: 8 }}>
+      {"\u2B07"} 导出 {label}
+    </button>
+  );
+}
+
+function DashboardTab({ refreshKey }) {
   const [stats, setStats] = useState(null);
   const [fundSummary, setFundSummary] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -24,7 +61,7 @@ function DashboardTab() {
       .then(([s, fs]) => { setStats(s); setFundSummary(fs); })
       .catch(() => {})
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshKey]);
 
   if (loading) return <div className="loading">Loading dashboard data...</div>;
   if (!stats) return <div className="loading">Failed to load data. Make sure backend is running on port 3001.</div>;
@@ -84,11 +121,103 @@ function DashboardTab() {
   );
 }
 
-function BridgeRequestsTab() {
+function CreateRequestModal({ onClose, onCreate }) {
+  const [form, setForm] = useState({
+    sourceChain: "Avalanche",
+    targetChain: "Ethereum",
+    asset: "AVAX",
+    amount: "",
+    sender: "0x0000...0000"
+  });
+  const [creating, setCreating] = useState(false);
+
+  const chains = ["Avalanche", "Ethereum", "BSC", "Arbitrum", "Optimism"];
+  const assets = ["AVAX", "ETH", "USDC", "LINK", "WBTC"];
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    setCreating(true);
+    createBridgeRequest(form)
+      .then(() => { onCreate(); onClose(); })
+      .catch(() => { setCreating(false); });
+  };
+
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>新建跨链请求</h3>
+          <button className="modal-close" onClick={onClose}>&times;</button>
+        </div>
+        <form onSubmit={handleSubmit} className="modal-form">
+          <div className="form-row">
+            <label>源链</label>
+            <select value={form.sourceChain} onChange={e => setForm({ ...form, sourceChain: e.target.value })}>
+              {chains.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="form-row">
+            <label>目标链</label>
+            <select value={form.targetChain} onChange={e => setForm({ ...form, targetChain: e.target.value })}>
+              {chains.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="form-row">
+            <label>资产</label>
+            <select value={form.asset} onChange={e => setForm({ ...form, asset: e.target.value })}>
+              {assets.map(a => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </div>
+          <div className="form-row">
+            <label>金额</label>
+            <input type="text" value={form.amount} onChange={e => setForm({ ...form, amount: e.target.value })} placeholder="例如: 100.00" required />
+          </div>
+          <div className="form-row">
+            <label>发送者地址</label>
+            <input type="text" value={form.sender} onChange={e => setForm({ ...form, sender: e.target.value })} placeholder="0x..." />
+          </div>
+          <button type="submit" className="btn btn-primary" disabled={creating} style={{ marginTop: 8 }}>
+            {creating ? "创建中..." : "创建请求"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function RequestDetailModal({ request, onClose }) {
+  if (!request) return null;
+  return (
+    <div className="modal-overlay" onClick={onClose}>
+      <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>跨链请求详情 - {request.id}</h3>
+          <button className="modal-close" onClick={onClose}>&times;</button>
+        </div>
+        <div className="detail-grid">
+          <div className="detail-row"><span className="detail-label">请求 ID</span><span className="detail-value">{request.id}</span></div>
+          <div className="detail-row"><span className="detail-label">源链</span><span className="detail-value">{request.sourceChain}</span></div>
+          <div className="detail-row"><span className="detail-label">目标链</span><span className="detail-value">{request.targetChain}</span></div>
+          <div className="detail-row"><span className="detail-label">资产</span><span className="detail-value">{request.asset}</span></div>
+          <div className="detail-row"><span className="detail-label">金额</span><span className="detail-value">{request.amount}</span></div>
+          <div className="detail-row"><span className="detail-label">发送者</span><span className="detail-value mono">{request.sender}</span></div>
+          <div className="detail-row"><span className="detail-label">状态</span><span className="detail-value"><span className={"status-badge " + request.status}>{request.status}</span></span></div>
+          <div className="detail-row"><span className="detail-label">交易哈希</span><span className="detail-value mono">{request.txHash || "暂无"}</span></div>
+          <div className="detail-row"><span className="detail-label">时间</span><span className="detail-value">{request.timestamp}</span></div>
+          {request.error && <div className="detail-row"><span className="detail-label">错误信息</span><span className="detail-value" style={{ color: "var(--av-red)" }}>{request.error}</span></div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function BridgeRequestsTab({ refreshKey, onRefresh }) {
   const [requests, setRequests] = useState(null);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showCreate, setShowCreate] = useState(false);
+  const [detailRequest, setDetailRequest] = useState(null);
 
   const loadData = useCallback(() => {
     setLoading(true);
@@ -99,7 +228,7 @@ function BridgeRequestsTab() {
       .finally(() => setLoading(false));
   }, [filter]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData, refreshKey]);
 
   const handleStatusChange = (id, newStatus) => {
     updateBridgeRequest(id, { status: newStatus }).then(() => loadData());
@@ -108,15 +237,29 @@ function BridgeRequestsTab() {
   const tabs = ["all", "pending", "processing", "completed", "failed"];
 
   if (loading) return <div className="loading">Loading bridge requests...</div>;
-  if (error) return <div className="loading">{error}</div>;
+  if (error) return (
+    <div>
+      <div className="loading">{error}</div>
+      <button className="btn btn-sm btn-secondary" onClick={() => { onRefresh(); loadData(); }}>重试</button>
+    </div>
+  );
 
   return (
     <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+        <button className="btn btn-sm btn-primary" onClick={() => setShowCreate(true)}>
+          + 新建跨链请求
+        </button>
+        <button className="btn btn-sm btn-secondary" onClick={() => { onRefresh(); loadData(); }}>
+          刷新
+        </button>
+        <ExportButton data={requests} filename="bridge-requests.csv" label="CSV" />
+      </div>
       <div className="tabs">
         {tabs.map(t => (
-          <div key={t} className={"tab " + (filter === t ? "active" : "")} onClick={() => setFilter(t)}>
+          <button key={t} className={"tab " + (filter === t ? "active" : "")} onClick={() => setFilter(t)}>
             {t === "all" ? "全部" : t === "pending" ? "待处理" : t === "processing" ? "处理中" : t === "completed" ? "已完成" : "失败"}
-          </div>
+          </button>
         ))}
       </div>
       <table className="data-table">
@@ -136,7 +279,9 @@ function BridgeRequestsTab() {
         <tbody>
           {requests.map(r => (
             <tr key={r.id}>
-              <td>{r.id}</td>
+              <td>
+                <button className="link-btn" onClick={() => setDetailRequest(r)}>{r.id}</button>
+              </td>
               <td>{r.sourceChain}</td>
               <td>{r.targetChain}</td>
               <td>{r.asset}</td>
@@ -145,18 +290,21 @@ function BridgeRequestsTab() {
               <td><span className={"status-badge " + r.status}>{r.status === "completed" ? "已完成" : r.status === "processing" ? "处理中" : r.status === "pending" ? "待处理" : "失败"}</span></td>
               <td style={{ fontSize: 12, whiteSpace: "nowrap" }}>{r.timestamp}</td>
               <td>
-                {r.status === "pending" && (
-                  <button onClick={() => handleStatusChange(r.id, "processing")} style={{ padding: "4px 10px", fontSize: 12, borderRadius: 6, border: "1px solid var(--accent-blue)", background: "rgba(76,139,245,0.15)", color: "var(--accent-blue)", cursor: "pointer" }}>开始处理</button>
-                )}
-                {r.status === "processing" && (
-                  <button onClick={() => handleStatusChange(r.id, "completed")} style={{ padding: "4px 10px", fontSize: 12, borderRadius: 6, border: "1px solid var(--accent-green)", background: "rgba(46,204,113,0.15)", color: "var(--accent-green)", cursor: "pointer" }}>标记完成</button>
-                )}
-                {r.status === "failed" && (
-                  <button onClick={() => handleStatusChange(r.id, "pending")} style={{ padding: "4px 10px", fontSize: 12, borderRadius: 6, border: "1px solid var(--accent-yellow)", background: "rgba(241,196,15,0.15)", color: "var(--accent-yellow)", cursor: "pointer" }}>重试</button>
-                )}
-                {(r.status === "completed" || r.status === "processing") && (
-                  <button onClick={() => handleStatusChange(r.id, "failed")} style={{ padding: "4px 10px", fontSize: 12, borderRadius: 6, border: "1px solid var(--av-red)", background: "rgba(232,65,66,0.15)", color: "var(--av-red)", cursor: "pointer", marginLeft: 4 }}>标记失败</button>
-                )}
+                <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
+                  <button className="btn-table btn-table-blue" onClick={() => setDetailRequest(r)}>详情</button>
+                  {r.status === "pending" && (
+                    <button className="btn-table btn-table-blue" onClick={() => handleStatusChange(r.id, "processing")}>开始处理</button>
+                  )}
+                  {r.status === "processing" && (
+                    <button className="btn-table btn-table-green" onClick={() => handleStatusChange(r.id, "completed")}>标记完成</button>
+                  )}
+                  {r.status === "failed" && (
+                    <button className="btn-table btn-table-yellow" onClick={() => handleStatusChange(r.id, "pending")}>重试</button>
+                  )}
+                  {(r.status === "completed" || r.status === "processing") && (
+                    <button className="btn-table btn-table-red" onClick={() => handleStatusChange(r.id, "failed")}>标记失败</button>
+                  )}
+                </div>
               </td>
             </tr>
           ))}
@@ -165,11 +313,23 @@ function BridgeRequestsTab() {
       <div style={{ marginTop: 12, fontSize: 13, color: "var(--text-secondary)" }}>
         {requests.length === 0 ? "当前筛选条件下无数据" : "共 " + requests.length + " 条记录"}
       </div>
+      {showCreate && (
+        <CreateRequestModal
+          onClose={() => setShowCreate(false)}
+          onCreate={() => { onRefresh(); loadData(); }}
+        />
+      )}
+      {detailRequest && (
+        <RequestDetailModal
+          request={detailRequest}
+          onClose={() => setDetailRequest(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ValidatorsTab() {
+function ValidatorsTab({ refreshKey, onRefresh }) {
   const [validators, setValidators] = useState(null);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -181,7 +341,7 @@ function ValidatorsTab() {
       .finally(() => setLoading(false));
   }, [filter]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData(); }, [loadData, refreshKey]);
 
   const toggleStatus = (id, currentStatus) => {
     const newStatus = currentStatus === "active" ? "inactive" : "active";
@@ -192,10 +352,14 @@ function ValidatorsTab() {
 
   return (
     <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <button className="btn btn-sm btn-secondary" onClick={() => { onRefresh(); loadData(); }}>刷新</button>
+        <ExportButton data={validators} filename="validators.csv" label="CSV" />
+      </div>
       <div className="tabs">
-        <div className={"tab " + (filter === "all" ? "active" : "")} onClick={() => setFilter("all")}>全部</div>
-        <div className={"tab " + (filter === "active" ? "active" : "")} onClick={() => setFilter("active")}>活跃</div>
-        <div className={"tab " + (filter === "inactive" ? "active" : "")} onClick={() => setFilter("inactive")}>非活跃</div>
+        <button className={"tab " + (filter === "all" ? "active" : "")} onClick={() => setFilter("all")}>全部</button>
+        <button className={"tab " + (filter === "active" ? "active" : "")} onClick={() => setFilter("active")}>活跃</button>
+        <button className={"tab " + (filter === "inactive" ? "active" : "")} onClick={() => setFilter("inactive")}>非活跃</button>
       </div>
       <table className="data-table">
         <thead>
@@ -228,12 +392,10 @@ function ValidatorsTab() {
               <td>{v.blocksSigned.toLocaleString()}</td>
               <td style={{ fontSize: 12 }}>{v.joinedAt}</td>
               <td>
-                <button onClick={() => toggleStatus(v.id, v.status)} style={{
-                  padding: "4px 10px", fontSize: 12, borderRadius: 6, cursor: "pointer",
-                  border: v.status === "active" ? "1px solid var(--av-red)" : "1px solid var(--accent-green)",
-                  background: v.status === "active" ? "rgba(232,65,66,0.15)" : "rgba(46,204,113,0.15)",
-                  color: v.status === "active" ? "var(--av-red)" : "var(--accent-green)"
-                }}>
+                <button
+                  className={"btn-table " + (v.status === "active" ? "btn-table-red" : "btn-table-green")}
+                  onClick={() => toggleStatus(v.id, v.status)}
+                >
                   {v.status === "active" ? "停用" : "启用"}
                 </button>
               </td>
@@ -245,7 +407,7 @@ function ValidatorsTab() {
   );
 }
 
-function FundFlowsTab() {
+function FundFlowsTab({ refreshKey, onRefresh }) {
   const [funds, setFunds] = useState(null);
   const [filter, setFilter] = useState("all");
   const [loading, setLoading] = useState(true);
@@ -255,7 +417,7 @@ function FundFlowsTab() {
     getFunds(filter)
       .then(setFunds)
       .finally(() => setLoading(false));
-  }, [filter]);
+  }, [filter, refreshKey]);
 
   if (loading) return <div className="loading">Loading fund flows...</div>;
 
@@ -271,11 +433,15 @@ function FundFlowsTab() {
 
   return (
     <div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 4 }}>
+        <button className="btn btn-sm btn-secondary" onClick={() => onRefresh()}>刷新</button>
+        <ExportButton data={funds} filename="fund-flows.csv" label="CSV" />
+      </div>
       <div className="tabs">
         {categories.map(c => (
-          <div key={c.key} className={"tab " + (filter === c.key ? "active" : "")} onClick={() => setFilter(c.key)}>
+          <button key={c.key} className={"tab " + (filter === c.key ? "active" : "")} onClick={() => setFilter(c.key)}>
             {c.label}
-          </div>
+          </button>
         ))}
       </div>
       <table className="data-table">
@@ -314,6 +480,11 @@ function FundFlowsTab() {
 
 export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState("dashboard");
+  const [refreshKey, setRefreshKey] = useState(0);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshKey(k => k + 1);
+  }, []);
 
   const tabs = [
     { key: "dashboard", label: "仪表盘" },
@@ -327,18 +498,28 @@ export default function AdminDashboard() {
       <div className="admin-header">
         <div className="admin-title">Avalanche 跨链桥管理后台</div>
         <div className="admin-subtitle">Bridge Management Dashboard &middot; Team1 Mini Grants</div>
+        <div style={{ marginTop: 8 }}>
+          <Link href="/" className="btn btn-sm btn-secondary">
+            返回方案展示
+          </Link>
+        </div>
       </div>
       <div className="tabs">
         {tabs.map(t => (
-          <div key={t.key} className={"tab " + (activeTab === t.key ? "active" : "")} onClick={() => setActiveTab(t.key)}>
+          <button key={t.key} className={"tab " + (activeTab === t.key ? "active" : "")} onClick={() => setActiveTab(t.key)}>
             {t.label}
-          </div>
+          </button>
         ))}
       </div>
-      {activeTab === "dashboard" && <DashboardTab />}
-      {activeTab === "requests" && <BridgeRequestsTab />}
-      {activeTab === "validators" && <ValidatorsTab />}
-      {activeTab === "funds" && <FundFlowsTab />}
+      {activeTab === "dashboard" && (
+        <div>
+          <RefreshButton onClick={handleRefresh} />
+          <DashboardTab refreshKey={refreshKey} />
+        </div>
+      )}
+      {activeTab === "requests" && <BridgeRequestsTab refreshKey={refreshKey} onRefresh={handleRefresh} />}
+      {activeTab === "validators" && <ValidatorsTab refreshKey={refreshKey} onRefresh={handleRefresh} />}
+      {activeTab === "funds" && <FundFlowsTab refreshKey={refreshKey} onRefresh={handleRefresh} />}
     </div>
   );
 }
