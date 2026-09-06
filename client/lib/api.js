@@ -1,4 +1,4 @@
-const API_BASE = "http://localhost:3001/api";
+const API_BASE = (typeof process !== "undefined" && process.env && process.env.NEXT_PUBLIC_API_URL) || "http://localhost:3001/api";
 
 async function fetchAPI(endpoint) {
   const res = await fetch(API_BASE + endpoint);
